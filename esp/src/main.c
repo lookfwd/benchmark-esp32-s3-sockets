@@ -6,12 +6,15 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
-#include "esp_http_server.h"
+#include "esp_https_server.h"
 
 #define WIFI_SSID "SSID"
 #define WIFI_PASS "PASS"
 #define SERVER_PORT 5000
 #define SEND_BUF_SIZE 16384
+
+#include "cert_data.h"
+#include "key_data.h"
 
 static const char *TAG = "ws_blast";
 static volatile bool wifi_connected = false;
@@ -122,15 +125,19 @@ static const httpd_uri_t ws_uri = {
 
 static httpd_handle_t start_webserver(void)
 {
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = SERVER_PORT;
-    config.send_wait_timeout = 30;
-    config.recv_wait_timeout = 30;
+    httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
+    config.servercert = server_cert;
+    config.servercert_len = server_cert_len;
+    config.prvtkey_pem = server_key;
+    config.prvtkey_len = server_key_len;
+    config.port_secure = SERVER_PORT;
+    config.httpd.send_wait_timeout = 30;
+    config.httpd.recv_wait_timeout = 30;
 
     httpd_handle_t server = NULL;
-    if (httpd_start(&server, &config) == ESP_OK) {
+    if (httpd_ssl_start(&server, &config) == ESP_OK) {
         httpd_register_uri_handler(server, &ws_uri);
-        ESP_LOGI(TAG, "WebSocket server started on port %d", SERVER_PORT);
+        ESP_LOGI(TAG, "Secure WebSocket server started on port %d", SERVER_PORT);
     }
     return server;
 }

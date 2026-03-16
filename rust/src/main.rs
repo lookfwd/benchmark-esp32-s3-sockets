@@ -1,19 +1,39 @@
 use std::env;
+use std::net::TcpStream;
 use std::time::Instant;
-use tungstenite::{connect, Message};
+use native_tls::TlsConnector;
+use tungstenite::{client_tls_with_config, Connector, Message};
 
 const DEFAULT_ADDR: &str = "192.168.1.100:5000";
 
 fn main() {
     let arg = env::args().nth(1).unwrap_or_else(|| DEFAULT_ADDR.to_string());
-    let url = if arg.starts_with("ws://") {
+    let addr = if arg.starts_with("wss://") {
+        arg.trim_start_matches("wss://").trim_end_matches("/ws").to_string()
+    } else {
+        arg.clone()
+    };
+    let url = if arg.starts_with("wss://") {
         arg
     } else {
-        format!("ws://{arg}/ws")
+        format!("wss://{arg}/ws")
     };
 
+    // Accept self-signed certificates from the ESP32
+    let tls_connector = TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .expect("Failed to build TLS connector");
+
     println!("Connecting to {url}...");
-    let (mut socket, _response) = connect(&url).expect("Failed to connect");
+    let tcp_stream = TcpStream::connect(&addr).expect("Failed to connect TCP");
+    let (mut socket, _response) = client_tls_with_config(
+        &url,
+        tcp_stream,
+        None,
+        Some(Connector::NativeTls(tls_connector)),
+    )
+    .expect("Failed to connect");
     println!("Connected!");
 
     // Send trigger message to start the blast

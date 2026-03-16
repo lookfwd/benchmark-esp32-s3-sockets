@@ -101,4 +101,43 @@ Connected!
 3.16 MB/s (25.26 Mbps)
 ```
 
+# Secure Websockets
+
+## Initial
+
+```
+% cargo run -- "wss://192.168.86.40:5000/ws"
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `target/debug/socket-bandwidth 'wss://192.168.86.40:5000/ws'`
+Connecting to wss://192.168.86.40:5000/ws...
+Connected!
+0.70 MB/s (5.57 Mbps)
+0.71 MB/s (5.64 Mbps)
+0.70 MB/s (5.61 Mbps)
+0.72 MB/s (5.77 Mbps)
+0.70 MB/s (5.61 Mbps)
+0.72 MB/s (5.80 Mbps)
+0.71 MB/s (5.66 Mbps)
+0.71 MB/s (5.70 Mbps)
+0.71 MB/s (5.68 Mbps)
+```
+
+## Improvements
+
+Increase mbedTLS output buffer — the sdkconfig has CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096. Increasing this to 16384 would allow larger TLS records per send.
+Want me to bump the mbedTLS output buffer size? That's likely the biggest bottleneck — each send is being fragmented into 4KB TLS records.
+
+## Final Build
+
+```
+Connected!
+1.02 MB/s (8.16 Mbps)
+1.00 MB/s (8.03 Mbps)
+1.05 MB/s (8.37 Mbps)
+1.04 MB/s (8.35 Mbps)
+1.05 MB/s (8.44 Mbps)
+1.05 MB/s (8.38 Mbps)
+1.09 MB/s (8.73 Mbps)
+1.04 MB/s (8.34 Mbps)
+```
 
