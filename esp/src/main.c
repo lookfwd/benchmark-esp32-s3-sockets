@@ -6,14 +6,14 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
-#include "lwip/sockets.h"
+#include "esp_http_server.h"
 
 #define WIFI_SSID "SSID"
 #define WIFI_PASS "PASS"
 #define SERVER_PORT 5000
-#define SEND_BUF_SIZE 32768
+#define SEND_BUF_SIZE 16384
 
-static const char *TAG = "tcp_blast";
+static const char *TAG = "ws_blast";
 static volatile bool wifi_connected = false;
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
@@ -63,32 +63,76 @@ static void wifi_init(void)
     }
 }
 
-static void blast_client(int client_sock)
+static esp_err_t ws_handler(httpd_req_t *req)
 {
-    // Fill buffer with a repeating pattern
+    if (req->method == HTTP_GET) {
+        ESP_LOGI(TAG, "WebSocket handshake from client");
+        return ESP_OK;
+    }
+
+    // Receive the trigger message from client
+    httpd_ws_frame_t ws_pkt;
+    memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+    ws_pkt.type = HTTPD_WS_TYPE_BINARY;
+    uint8_t recv_buf[128];
+    ws_pkt.payload = recv_buf;
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, sizeof(recv_buf));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to receive ws frame: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Received trigger, starting blast...");
+
+    // Now blast data back
     char *buf = malloc(SEND_BUF_SIZE);
     if (!buf) {
         ESP_LOGE(TAG, "Failed to allocate send buffer");
-        close(client_sock);
-        return;
+        return ESP_ERR_NO_MEM;
     }
     memset(buf, 'X', SEND_BUF_SIZE);
 
-    // Increase socket send buffer
-    int sndbuf = 65534;
-    setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+    httpd_ws_frame_t send_pkt;
+    memset(&send_pkt, 0, sizeof(httpd_ws_frame_t));
+    send_pkt.final = true;
+    send_pkt.fragmented = false;
+    send_pkt.type = HTTPD_WS_TYPE_BINARY;
+    send_pkt.payload = (uint8_t *)buf;
+    send_pkt.len = SEND_BUF_SIZE;
 
-    ESP_LOGI(TAG, "Blasting data to client...");
+    int fd = httpd_req_to_sockfd(req);
     while (1) {
-        int sent = send(client_sock, buf, SEND_BUF_SIZE, 0);
-        if (sent < 0) {
-            ESP_LOGI(TAG, "Client disconnected (send error)");
+        ret = httpd_ws_send_frame_async(req->handle, fd, &send_pkt);
+        if (ret != ESP_OK) {
+            ESP_LOGI(TAG, "Client disconnected (send error: %s)", esp_err_to_name(ret));
             break;
         }
     }
 
     free(buf);
-    close(client_sock);
+    return ESP_OK;
+}
+
+static const httpd_uri_t ws_uri = {
+    .uri = "/ws",
+    .method = HTTP_GET,
+    .handler = ws_handler,
+    .is_websocket = true,
+};
+
+static httpd_handle_t start_webserver(void)
+{
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = SERVER_PORT;
+    config.send_wait_timeout = 30;
+    config.recv_wait_timeout = 30;
+
+    httpd_handle_t server = NULL;
+    if (httpd_start(&server, &config) == ESP_OK) {
+        httpd_register_uri_handler(server, &ws_uri);
+        ESP_LOGI(TAG, "WebSocket server started on port %d", SERVER_PORT);
+    }
+    return server;
 }
 
 void app_main(void)
@@ -100,44 +144,10 @@ void app_main(void)
     esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
     ESP_LOGI(TAG, "My IP: " IPSTR, IP2STR(&ip_info.ip));
 
-    int listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listen_sock < 0) {
-        ESP_LOGE(TAG, "Failed to create socket");
-        return;
-    }
+    start_webserver();
 
-    int opt = 1;
-    setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    struct sockaddr_in server_addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(SERVER_PORT),
-        .sin_addr.s_addr = htonl(INADDR_ANY),
-    };
-
-    if (bind(listen_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        ESP_LOGE(TAG, "Bind failed");
-        close(listen_sock);
-        return;
-    }
-
-    if (listen(listen_sock, 1) < 0) {
-        ESP_LOGE(TAG, "Listen failed");
-        close(listen_sock);
-        return;
-    }
-
-    ESP_LOGI(TAG, "Listening on port %d", SERVER_PORT);
-
+    // Keep main task alive
     while (1) {
-        struct sockaddr_in client_addr;
-        socklen_t addr_len = sizeof(client_addr);
-        int client_sock = accept(listen_sock, (struct sockaddr *)&client_addr, &addr_len);
-        if (client_sock < 0) {
-            ESP_LOGE(TAG, "Accept failed");
-            continue;
-        }
-        ESP_LOGI(TAG, "Client connected from %s", inet_ntoa(client_addr.sin_addr));
-        blast_client(client_sock);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

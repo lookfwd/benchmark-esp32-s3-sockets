@@ -53,3 +53,52 @@ Connected!
 Nice! ~28 Mbps is excellent for ESP32-S3 over WiFi — that's close to the practical maximum for TCP over 802.11n. The TCP buffer tuning made a ~40x improvement.
 
 
+
+# Websockets
+
+## Initial build
+
+```
+% cargo run -- "ws://192.168.86.40:5000/ws"
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running `target/debug/socket-bandwidth 'ws://192.168.86.40:5000/ws'`
+Connecting to ws://192.168.86.40:5000/ws...
+Connected!
+2.31 MB/s (18.47 Mbps)
+2.35 MB/s (18.81 Mbps)
+2.33 MB/s (18.65 Mbps)
+2.23 MB/s (17.88 Mbps)
+1.65 MB/s (13.21 Mbps)
+1.99 MB/s (15.88 Mbps)
+```
+
+## Improvements
+
+Increased `SEND_BUF_SIZE` from 4096 to 16384. With 4KB frames, the WebSocket framing overhead (2-14 bytes per frame + masking) is proportionally large. At 16KB per frame, it's much less significant.
+
+That said, ~18 Mbps is roughly what to expect with WebSocket on ESP32-S3 over WiFi. The raw TCP version likely got more because:
+- No per-message framing overhead (WebSocket adds header bytes per frame)
+- No HTTP server layer in the middle (the `esp_http_server` adds processing)
+- Raw TCP can use larger send buffers (32KB) and the kernel handles segmentation
+
+WebSocket will always be slower than raw TCP — it's the cost of the protocol. The 16KB buffer should help get a few more Mbps though.
+
+## Final build
+
+```
+% cargo run -- "ws://192.168.86.40:5000/ws"
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/socket-bandwidth 'ws://192.168.86.40:5000/ws'`
+Connecting to ws://192.168.86.40:5000/ws...
+Connected!
+3.14 MB/s (25.09 Mbps)
+3.33 MB/s (26.68 Mbps)
+3.31 MB/s (26.52 Mbps)
+2.58 MB/s (20.63 Mbps)
+2.85 MB/s (22.79 Mbps)
+3.38 MB/s (27.01 Mbps)
+3.38 MB/s (27.03 Mbps)
+3.16 MB/s (25.26 Mbps)
+```
+
+
