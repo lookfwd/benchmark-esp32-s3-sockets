@@ -103,6 +103,13 @@ Connected!
 
 # Secure Websockets
 
+Based on [this benchmark](https://www.oryx-embedded.com/benchmark/espressif/crypto-esp32-s3.html)...
+
+* AES-GCM is software-only on ESP32-S3: ~1.35 MB/s — that matches closely with your ECDSA result (~0.03-0.08 MB/s was likely ECDSA + software AES-GCM overhead)
+* AES-CBC has hardware acceleration: ~7-8 MB/s — which matches your RSA result (~8 Mbps = ~1 MB/s... wait, you're getting 1 MB/s = 8 Mbps)
+
+~8 Mbps with RSA is actually hitting the AES-GCM software ceiling (~1.35 MB/s ≈ ~10.8 Mbps theoretical max). To get better throughput, we should force AES-CBC cipher suites which have hardware acceleration.
+
 ## Initial
 
 ```
@@ -125,19 +132,25 @@ Connected!
 ## Improvements
 
 Increase mbedTLS output buffer — the sdkconfig has CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096. Increasing this to 16384 would allow larger TLS records per send.
-Want me to bump the mbedTLS output buffer size? That's likely the biggest bottleneck — each send is being fragmented into 4KB TLS records.
+Want me to bump the mbedTLS output buffer size? That's likely the biggest bottleneck — each send is being fragmented into 4KB TLS records. Symmetric 16KB buffers — no overhead from asymmetric path handling.
 
 ## Final Build
 
 ```
+% cargo run -- "wss://192.168.86.40:5000/ws"
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running `target/debug/socket-bandwidth 'wss://192.168.86.40:5000/ws'`
+Connecting to wss://192.168.86.40:5000/ws...
 Connected!
-1.02 MB/s (8.16 Mbps)
-1.00 MB/s (8.03 Mbps)
-1.05 MB/s (8.37 Mbps)
-1.04 MB/s (8.35 Mbps)
-1.05 MB/s (8.44 Mbps)
-1.05 MB/s (8.38 Mbps)
-1.09 MB/s (8.73 Mbps)
-1.04 MB/s (8.34 Mbps)
+1.97 MB/s (15.72 Mbps)
+1.97 MB/s (15.75 Mbps)
+1.97 MB/s (15.77 Mbps)
+0.71 MB/s (5.68 Mbps)
+1.92 MB/s (15.39 Mbps)
+2.05 MB/s (16.44 Mbps)
+2.00 MB/s (16.02 Mbps)
+1.86 MB/s (14.88 Mbps)
+2.06 MB/s (16.47 Mbps)
+2.08 MB/s (16.67 Mbps)
 ```
 
