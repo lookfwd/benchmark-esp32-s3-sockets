@@ -1,6 +1,10 @@
-# Readme
+# Benchmark ESP32-S3 Web stack, from sockets to secure websockets
 
-## Initial Performance
+We use PlatformIO and tune sdkconfig for every level. You will find incremental commits for the various socket types.
+
+## Sockets
+
+### Initial Performance
 
 ```
 Connecting to 192.168.86.40:5000...
@@ -16,7 +20,7 @@ Connected!
 0.08 MB/s (0.63 Mbps)
 ```
 
-## Claims Improvements
+### Improvements
 
 Here's what was changed and why:
 
@@ -34,7 +38,7 @@ Here's what was changed and why:
 
 Rebuild and reflash. You should see a significant improvement — expect ~5-15 Mbps depending on WiFi conditions.
 
-## Improved Configuration
+### Improved Configuration
 
 ```
 Connecting to 192.168.86.40:5000...
@@ -48,15 +52,13 @@ Connected!
 3.77 MB/s (30.19 Mbps)
 ```
 
-## Comment
+### Comment
 
 Nice! ~28 Mbps is excellent for ESP32-S3 over WiFi — that's close to the practical maximum for TCP over 802.11n. The TCP buffer tuning made a ~40x improvement.
 
+## Websockets
 
-
-# Websockets
-
-## Initial build
+### Initial build
 
 ```
 % cargo run -- "ws://192.168.86.40:5000/ws"
@@ -72,7 +74,7 @@ Connected!
 1.99 MB/s (15.88 Mbps)
 ```
 
-## Improvements
+### Improvements
 
 Increased `SEND_BUF_SIZE` from 4096 to 16384. With 4KB frames, the WebSocket framing overhead (2-14 bytes per frame + masking) is proportionally large. At 16KB per frame, it's much less significant.
 
@@ -83,7 +85,7 @@ That said, ~18 Mbps is roughly what to expect with WebSocket on ESP32-S3 over Wi
 
 WebSocket will always be slower than raw TCP — it's the cost of the protocol. The 16KB buffer should help get a few more Mbps though.
 
-## Final build
+### Final build
 
 ```
 % cargo run -- "ws://192.168.86.40:5000/ws"
@@ -101,7 +103,7 @@ Connected!
 3.16 MB/s (25.26 Mbps)
 ```
 
-# Secure Websockets
+## Secure Websockets
 
 Based on [this benchmark](https://www.oryx-embedded.com/benchmark/espressif/crypto-esp32-s3.html)...
 
@@ -110,7 +112,7 @@ Based on [this benchmark](https://www.oryx-embedded.com/benchmark/espressif/cryp
 
 ~8 Mbps with RSA is actually hitting the AES-GCM software ceiling (~1.35 MB/s ≈ ~10.8 Mbps theoretical max). To get better throughput, we should force AES-CBC cipher suites which have hardware acceleration.
 
-## Initial
+### Initial
 
 ```
 % cargo run -- "wss://192.168.86.40:5000/ws"
@@ -129,12 +131,12 @@ Connected!
 0.71 MB/s (5.68 Mbps)
 ```
 
-## Improvements
+### Improvements
 
 Increase mbedTLS output buffer — the sdkconfig has CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096. Increasing this to 16384 would allow larger TLS records per send.
 Want me to bump the mbedTLS output buffer size? That's likely the biggest bottleneck — each send is being fragmented into 4KB TLS records. Symmetric 16KB buffers — no overhead from asymmetric path handling.
 
-## Final Build
+### Final Build
 
 ```
 % cargo run -- "wss://192.168.86.40:5000/ws"
@@ -145,7 +147,6 @@ Connected!
 1.97 MB/s (15.72 Mbps)
 1.97 MB/s (15.75 Mbps)
 1.97 MB/s (15.77 Mbps)
-0.71 MB/s (5.68 Mbps)
 1.92 MB/s (15.39 Mbps)
 2.05 MB/s (16.44 Mbps)
 2.00 MB/s (16.02 Mbps)
@@ -153,4 +154,14 @@ Connected!
 2.06 MB/s (16.47 Mbps)
 2.08 MB/s (16.67 Mbps)
 ```
+
+### Comment
+
+~16 Mbps — roughly 2x improvement from hardware AES-CBC. That's close to the benchmark's ~7-8 MB/s raw AES-CBC throughput minus the TLS record framing, WebSocket framing, and TCP overhead.
+
+### From Browser
+
+Gives similar performance on a browser if one can deal with the certificates
+
+![](img/from-browser.png)
 
