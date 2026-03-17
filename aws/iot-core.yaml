@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS IoT Core setup for ESP32 MQTT bandwidth test
+
+Parameters:
+  ThingName:
+    Type: String
+    Default: esp32-blast
+
+Resources:
+  IoTThing:
+    Type: AWS::IoT::Thing
+    Properties:
+      ThingName: !Ref ThingName
+
+  IoTPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: !Sub "${ThingName}-policy"
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - iot:Connect
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:client/${ThingName}-*"
+          - Effect: Allow
+            Action:
+              - iot:Publish
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/esp32/*"
+          - Effect: Allow
+            Action:
+              - iot:Subscribe
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/esp32/*"
+          - Effect: Allow
+            Action:
+              - iot:Receive
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/esp32/*"
+
+Outputs:
+  ThingName:
+    Description: IoT Thing name
+    Value: !Ref IoTThing
+
+  PolicyName:
+    Description: IoT Policy name (attach to your certificate)
+    Value: !Ref IoTPolicy
+
+  SetupInstructions:
+    Description: Steps to complete setup after stack creation
+    Value: !Sub |
+      1. Create device certificate:
+         aws iot create-keys-and-certificate --set-as-active \
+           --certificate-pem-outfile device.cert.pem \
+           --public-key-outfile device.public.key \
+           --private-key-outfile device.private.key \
+           --query certificateArn --output text
+
+      2. Attach policy to certificate:
+         aws iot attach-policy --policy-name ${ThingName}-policy --target <CERT_ARN>
+
+      3. Attach certificate to thing:
+         aws iot attach-thing-principal --thing-name ${ThingName} --principal <CERT_ARN>
+
+      4. Download Amazon Root CA:
+         curl -o AmazonRootCA1.pem https://www.amazontrust.com/repository/AmazonRootCA1.pem
+
+      5. Get your endpoint:
+         aws iot describe-endpoint --endpoint-type iot:Data-ATS
+
+      6. Convert certs to null-terminated C headers for ESP32 (mbedTLS requires \0):
+         cp AmazonRootCA1.pem AmazonRootCA1_tmp.pem && printf '\0' >> AmazonRootCA1_tmp.pem && xxd -i AmazonRootCA1_tmp.pem | sed 's/AmazonRootCA1_tmp_pem/AmazonRootCA1_pem/g' > esp/src/cert_data.h && rm AmazonRootCA1_tmp.pem
+         cp device.private.key device_private_tmp.key && printf '\0' >> device_private_tmp.key && xxd -i device_private_tmp.key | sed 's/device_private_tmp_key/device_private_key/g' > esp/src/key_data.h && rm device_private_tmp.key
+         cp device.cert.pem device_cert_tmp.pem && printf '\0' >> device_cert_tmp.pem && xxd -i device_cert_tmp.pem | sed 's/device_cert_tmp_pem/device_cert_pem/g' > esp/src/client_cert_data.h && rm device_cert_tmp.pem
+
+      7. Update MQTT_BROKER_URI in main.c with your endpoint
